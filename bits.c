@@ -230,7 +230,26 @@ int conditional(int x, int y, int z) {
  *   Rating: 4 
  */
 int greatestBitPos(int x) {
-  return 2;
+	int invertedX;
+	x |= x >> 1;
+	x |= x >> 2;
+	x |= x >> 3;
+	x |= x >> 4;
+	x |= x >> 5;
+	x |= x >> 6;
+	x |= x >> 7;
+	x |= x >> 8;
+	x |= x >> 9;
+	x |= x >> 10;
+	x |= x >> 11;
+	x |= x >> 12;
+	x |= x >> 13;
+	x |= x >> 14;
+	x |= x >> 15;
+	//this forces all bits to the right of the most significant 1 to be a 1.
+	invertedX = ~x; //by inverting x, all bits that were now 0s are 1s. So everything to the right of the most significant 1 is 0.
+	invertedX = invertedX >> 1; //shift left so that there is now exactly 1 set of 1s that align
+	return (x & invertedX)|(x & (1 << 31)); //because of overflow, 0x80000000 doesn't work well. so we just have to or it in.
 }
 /* 
  * divpwr2 - Compute x/(2^n), for 0 <= n <= 30
@@ -270,7 +289,10 @@ int isNonNegative(int x) {
  *   Rating: 3
  */
 int satMul2(int x) {
-	return 2;
+	int sign = x >> 31; //0xFFFFFFFF if sign is 1, 0x0 if sign is 0
+	int multiplied = x << 1; //multiply x by 2
+	int newsign = multiplied >> 31;
+	return (multiplied & (newsign ^ sign));
 }
 /* 
  * isLess - if x < y  then return 1, else return 0 
@@ -280,9 +302,17 @@ int satMul2(int x) {
  *   Rating: 3
  */
 int isLess(int x, int y) {
-  int diff = y + (~x+1); //y-x. must be less than 0. ~x = -x-1, so add 1 to just get -x.
-  int sign = !!(diff >> 31);
-  return sign;
+	int signx = (x >> 31) & 0x1; //x sign
+	int signy = (y >> 31) & 0x1; //y sign
+	int diff = (x + (~y+1)); //x-y
+	//there are 4 cases:
+	//1. x < 0, y >= 0
+	//2. x >= 0, y < 0
+	//3. same sign
+	int case1  = (signx) & ((!signy) | !y);
+	int case2 = ((!signx) | !x) & (signy);
+	int case3 = (diff >> 31) & !case2; //if diff is negative and we're not dealing with case2, then same sign
+	return case1 | case3; //we dont need to put case2 because it will always be 0 if those numbers line up.
 
 }
 /* 
@@ -295,7 +325,15 @@ int isLess(int x, int y) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+	int zero = 0x30; //constant declaration
+	int nine = 0x3a; //constant declaration
+	//if x is between 0x30 and 0x39, then the first term should be >=0.
+	//therefore, if we shift to the right by 31 we get the sign bit (0) and not to get 0x1.
+	//if x is between 0x30 and 0x39, then the second term should be <0.
+	//if we shift to the right by 31, we get sign bit (1) and then & with the other one.
+	//the reason we want <0 not <=0 is because we want the sign bit to always be a 1. if it was <= 0, we have edge case of 0x39 returning a zero there.
+	return (!((x+(~zero+1)) >> 31)) & ((x+(~nine+1)) >> 31);
+
 }
 /*
  * trueThreeFourths - multiplies by 3/4 rounding toward 0,
@@ -333,7 +371,12 @@ int ilog2(int x) {
  *   Rating: 2
  */
 unsigned float_neg(unsigned uf) {
- return 2;
+	int sign_bit = 1 << 31; //creates constant of 0x80000000
+	int ret = uf ^ sign_bit; //if number, this is the result. this just swaps the sign bit. 0^1 = 1, 1^1 = 0
+	//NaN is when all exponent bits are 1, and fraction all 0s
+	int isNan = uf << 1; //get rid of sign bit. want 0xFF000000 to be NaN.
+	if(isNan > 0xFF000000) ret = uf;
+	return ret;
 }
 /* 
  * float_i2f - Return bit-level equivalent of expression (float) x
@@ -345,7 +388,24 @@ unsigned float_neg(unsigned uf) {
  *   Rating: 4
  */
 unsigned float_i2f(int x) {
-  return 2;
+	int sign = x & (1 << 31); //sign bit
+	int e = 158; //exponent val, bias already added
+	int frac; //the frac value
+
+	if(x == 0) return 0; //if x is 0, float 0 is just 0. (This is to not have to deal w/ 0 case in while loop)
+	if(x < 0) x = ~x + 1; //if x is negative, make it positive. only thing that changes in neg vs pos float rep is sign bit.
+
+	while (((x >> 31) & 0x1) != 0x1) {
+		e--;
+		x = x << 1;
+	} //find where the decimal should go by making sure there's a 1 in the MSB pos.
+
+	frac = (x & ~(1 << 31)) >> 8; //take everything but sign bit and shift it to the right by 8 bits, make room for e.
+
+	//if exponent has a leading 0 as well as fraction being odd or the rest of exponent being nonzero, add 1.
+	if(((frac & 1) || (x & 0x7F) > 0) && (x & 0x80)) frac+=1;
+
+	return sign + (e << 23) + frac;
 }
 /* 
  * float_twice - Return bit-level equivalent of expression 2*f for
@@ -359,5 +419,18 @@ unsigned float_i2f(int x) {
  *   Rating: 4
  */
 unsigned float_twice(unsigned uf) {
-  return 2;
+	int sign = uf & (1 << 31); //sign bit isolated
+	int e = ((uf << 1) >> 24) << 23; //need all the shifting to put the exponent into the 8 bits it should occupy
+	int frac = (uf << 9) >> 9; //same here, need to get frac where it belongs
+
+	//there are 2 special cases:
+	//case 1: exponent is 0x7F800000 which is NaN
+	//case 2: exponent is 0
+	//to handle case 1, simply return uf
+	if(e == 0x7F800000) return uf;
+	//to handle case 2, we shift frac over by 1 (multiply that by 2)
+	else if (e == 0) return (frac << 1) + sign + e;
+	//otherwise, we just add 1 to the exponent
+	else e+=(1 << 23);
+	return frac + sign + e;
 }
