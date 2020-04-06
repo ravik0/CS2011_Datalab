@@ -248,7 +248,7 @@ int greatestBitPos(int x) {
 	x |= x >> 15;
 	//this forces all bits to the right of the most significant 1 to be a 1.
 	invertedX = ~x; //by inverting x, all bits that were now 0s are 1s. So everything to the right of the most significant 1 is 0.
-	invertedX = invertedX >> 1; //shift left so that there is now exactly 1 set of 1s that align
+	invertedX = invertedX >> 1; //shift right so that there is now exactly 1 set of 1s that align
 	return (x & invertedX)|(x & (1 << 31)); //because of overflow, 0x80000000 doesn't work well. so we just have to or it in.
 }
 /* 
@@ -289,10 +289,14 @@ int isNonNegative(int x) {
  *   Rating: 3
  */
 int satMul2(int x) {
-	int sign = x >> 31; //0xFFFFFFFF if sign is 1, 0x0 if sign is 0
+	int sign = x >> 31; //sign bit
+	int overflow_determine = (x << 1) >> 31; //bit next to the sign bit, determines whether overflow
+	int overflow_condition = sign^overflow_determine; //if this is 0xFFFFFFFFF, there is possible overflow
+	int saturation_value = overflow_determine^(1 << 31); //if 31st bit is 1, then nonsign_msb is all 1s, xor will create 0x7FFFFFFF
+	//if 31st bit is 0, then nonsign_msb is all 0s, xor will create 0x80000000
 	int multiplied = x << 1; //multiply x by 2
-	int newsign = multiplied >> 31;
-	return (multiplied & (newsign ^ sign));
+	return (overflow_condition&saturation_value) | ((~overflow_condition)&multiplied);
+	//if overflow condition is all 1s, then you get saturation value. otherwise get the multiplied value
 }
 /* 
  * isLess - if x < y  then return 1, else return 0 
@@ -305,7 +309,7 @@ int isLess(int x, int y) {
 	int signx = (x >> 31) & 0x1; //x sign
 	int signy = (y >> 31) & 0x1; //y sign
 	int diff = (x + (~y+1)); //x-y
-	//there are 4 cases:
+	//there are 3 cases:
 	//1. x < 0, y >= 0
 	//2. x >= 0, y < 0
 	//3. same sign
@@ -347,7 +351,15 @@ int isAsciiDigit(int x) {
  */
 int trueThreeFourths(int x)
 {
-  return 2;
+	int remainder = x & 0x3; //when dividing by 4, lose first 2 bits
+	int sign = (x >> 31) & remainder; //sign bit and first two bits of x.
+	//need a sign related argument because negative division doesn't auto-round to 0.
+
+	x = x >> 2; //divide by 4
+	x = x + (x << 1); //multiply by 3
+
+	//add 3/4 of the remainder, incrementing by sign if needed
+	return x + ((remainder + (remainder << 1) + sign) >> 2);
 }
 /*
  * ilog2 - return floor(log base 2 of x), where x > 0
@@ -357,7 +369,29 @@ int trueThreeFourths(int x)
  *   Rating: 4
  */
 int ilog2(int x) {
-  return 2;
+	int ret = 0x0; //return value
+	int tester = x; //we'll be testing various parts of x in this
+	//the premise is that, in 32-bit, you have 2^(16+8+4+2+1) numbers.
+	//we want a number for each of those, 16, 8, 4, 2, 1
+	tester = !!(x >> 16); //if there is a 1 here, that means it's divisble by
+	ret = ret + (tester << 4); //we shift to the right by 4 to account for the fact that this is the 4th number here
+	//now we look at 8
+	tester = !!(x >> (8 + ret)); //we have to add ret to 8 because we need to take into account the offset incase ret is nonzero
+	ret = ret + (tester << 3); //third bit place
+	//the same for the others
+	tester = !!(x >> (4 + ret));
+	ret = ret + (tester << 2);
+
+	tester = !!(x >> (2 + ret));
+	ret = ret + (tester << 1);
+
+	tester = !!(x >> (1 + ret));
+	ret = ret + tester;
+
+	return ret; //finally return
+
+
+	return ret;
 }
 /* 
  * float_neg - Return bit-level equivalent of expression -f for
